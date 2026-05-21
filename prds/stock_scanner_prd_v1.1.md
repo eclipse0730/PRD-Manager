@@ -362,6 +362,28 @@ yfinance/pykrx로 수집한 종가 데이터를 기반으로 백엔드에서 다
 
 ---
 
+## 9. 개발 환경 (변경 가능)
+
+개발툴: VSCode
+AI 보조: Codex 또는 Claude Code
+프론트: Next.js + TypeScript
+게임엔진: Phaser.js
+DB/Auth: PostgresSQL / Neon
+배포: Vercel
+디자인/에셋: Figma + Aseprite 또는 Photoshop
+
+---
+
+## 10. 개발 순서
+
+1. VSCode에서 Next.js 프로젝트 생성
+2. Phaser.js로 테트리스 게임 화면 구현
+3. https://console.neon.tech/ 로그인/랭킹 연결
+4. 스킨/캐릭터 시스템 추가
+5. Vercel 배포
+
+---
+
 ## 프로젝트 구조 (참고)
 
 ```
