@@ -7,18 +7,22 @@ const statusEl = document.getElementById('status');
 const wordCount = document.getElementById('wordCount');
 const schemaEditor = document.getElementById('schemaEditor');
 const schemaSummary = document.getElementById('schemaSummary');
+const changesSummary = document.getElementById('changesSummary');
+const changesBody = document.getElementById('changesBody');
 const prdSelect = document.getElementById('prdSelect');
 const schemaSelect = document.getElementById('schemaSelect');
 const currentPrdLabel = document.getElementById('currentPrdLabel');
 const currentSchemaLabel = document.getElementById('currentSchemaLabel');
 const main = document.querySelector('.main');
 const savePrdBtn = document.getElementById('saveBtn');
+const saveAsPrdBtn = document.getElementById('saveAsBtn');
 const saveSchemaBtn = document.getElementById('saveSchemaBtn');
 const prdDirtyBadge = document.getElementById('prdDirtyBadge');
 const schemaDirtyBadge = document.getElementById('schemaDirtyBadge');
 const schemaLinkStatus = document.getElementById('schemaLinkStatus');
 
 let currentMarkdown = '';
+let savedMarkdown = '';
 let currentSchemaContent = '';
 let currentPrdFile = '';
 let currentSchemaFile = '';
@@ -27,6 +31,7 @@ let schemaLinks = {};
 let isPrdDirty = false;
 let isSchemaDirty = false;
 let splitPreviewSyncFrame = null;
+let suppressSplitPreviewSyncUntil = 0;
 
 marked.setOptions({
   gfm: true,
@@ -40,6 +45,21 @@ if (window.mermaid) {
     startOnLoad: false,
     securityLevel: 'strict',
     theme: 'default'
+  });
+}
+
+function addSidebarDocumentIcons() {
+  [
+    { badge: prdDirtyBadge, className: 'prd-doc-icon' },
+    { badge: schemaDirtyBadge, className: 'schema-doc-icon' },
+  ].forEach(({ badge, className }) => {
+    const label = badge?.closest('.side-label-row')?.querySelector('.side-label');
+    if (!label || label.querySelector('.doc-icon')) return;
+
+    const icon = document.createElement('span');
+    icon.className = `doc-icon ${className}`;
+    icon.setAttribute('aria-hidden', 'true');
+    label.prepend(icon);
   });
 }
 
@@ -120,11 +140,99 @@ function renderMarkdown(md) {
   wordCount.textContent = `${md.length.toLocaleString()} chars`;
 }
 
-function scrollTextareaToLine(textarea, lineIndex) {
+function lineDiff(oldText, newText) {
+  const oldLines = oldText === '' ? [] : oldText.split('\n');
+  const newLines = newText === '' ? [] : newText.split('\n');
+  const rows = oldLines.length + 1;
+  const cols = newLines.length + 1;
+  const dp = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+  for (let i = oldLines.length - 1; i >= 0; i -= 1) {
+    for (let j = newLines.length - 1; j >= 0; j -= 1) {
+      dp[i][j] = oldLines[i] === newLines[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const result = [];
+  let i = 0;
+  let j = 0;
+  while (i < oldLines.length && j < newLines.length) {
+    if (oldLines[i] === newLines[j]) {
+      result.push({ type: 'same', oldLine: i + 1, newLine: j + 1, text: oldLines[i] });
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      result.push({ type: 'removed', oldLine: i + 1, newLine: '', text: oldLines[i] });
+      i += 1;
+    } else {
+      result.push({ type: 'added', oldLine: '', newLine: j + 1, text: newLines[j] });
+      j += 1;
+    }
+  }
+
+  while (i < oldLines.length) {
+    result.push({ type: 'removed', oldLine: i + 1, newLine: '', text: oldLines[i] });
+    i += 1;
+  }
+  while (j < newLines.length) {
+    result.push({ type: 'added', oldLine: '', newLine: j + 1, text: newLines[j] });
+    j += 1;
+  }
+
+  return result;
+}
+
+function appendChangeRow(change) {
+  const row = document.createElement('div');
+  row.className = `change-row ${change.type}`;
+
+  const marker = document.createElement('span');
+  marker.className = 'change-marker';
+  marker.textContent = change.type === 'added' ? '+' : change.type === 'removed' ? '-' : ' ';
+
+  const oldLine = document.createElement('span');
+  oldLine.className = 'change-line-number';
+  oldLine.textContent = change.oldLine;
+
+  const newLine = document.createElement('span');
+  newLine.className = 'change-line-number';
+  newLine.textContent = change.newLine;
+
+  const text = document.createElement('code');
+  text.textContent = change.text || ' ';
+
+  row.append(marker, oldLine, newLine, text);
+  changesBody.appendChild(row);
+}
+
+function renderChanges() {
+  if (!changesSummary || !changesBody) return;
+
+  changesBody.innerHTML = '';
+  if (savedMarkdown === currentMarkdown) {
+    changesSummary.textContent = 'No changes';
+    const empty = document.createElement('div');
+    empty.className = 'changes-empty';
+    empty.textContent = 'No unsaved MD changes';
+    changesBody.appendChild(empty);
+    return;
+  }
+
+  const changes = lineDiff(savedMarkdown, currentMarkdown);
+  const addedCount = changes.filter(change => change.type === 'added').length;
+  const removedCount = changes.filter(change => change.type === 'removed').length;
+  changesSummary.textContent = `${addedCount} added, ${removedCount} removed`;
+  changes.forEach(appendChangeRow);
+}
+
+function scrollTextareaToLine(textarea, lineIndex, topOffset = 18) {
   const style = window.getComputedStyle(textarea);
   const fontSize = parseFloat(style.fontSize) || 15;
   const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.65;
-  const targetTop = Math.max(0, lineIndex * lineHeight - 24);
+  const paddingTop = parseFloat(style.paddingTop) || 0;
+  const targetTop = Math.max(0, paddingTop + (lineIndex * lineHeight) - topOffset);
   textarea.scrollTo({
     top: Math.min(targetTop, textarea.scrollHeight - textarea.clientHeight),
     behavior: 'smooth'
@@ -138,9 +246,30 @@ function getTextareaLineIndex(textarea) {
   return Math.max(0, Math.round(textarea.scrollTop / lineHeight));
 }
 
+function headingViewportOffset() {
+  const tabs = document.querySelector('.tabs');
+  return (tabs?.getBoundingClientRect().bottom || 0) + 18;
+}
+
 function scrollPanelToHeading(container, heading, prefix) {
   const target = container.querySelector(`#${CSS.escape(headingDomId(prefix, heading))}`);
-  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!target) return;
+
+  if (container === splitPreview) {
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const nextTop = container.scrollTop + targetRect.top - containerRect.top - 18;
+    container.scrollTo({
+      top: Math.max(0, nextTop),
+      behavior: 'smooth'
+    });
+    return;
+  }
+
+  window.scrollBy({
+    top: target.getBoundingClientRect().top - headingViewportOffset(),
+    behavior: 'smooth'
+  });
 }
 
 function nearestHeadingForLine(lineIndex) {
@@ -205,11 +334,20 @@ function applyScrollContext(tabName, context) {
 
 function scrollToHeading(heading) {
   const isSplitMode = document.getElementById('splitPanel').classList.contains('active');
+  const isEditMode = document.getElementById('editPanel').classList.contains('active');
   const isPreviewMode = document.getElementById('previewPanel').classList.contains('active');
 
   if (isSplitMode) {
+    suppressSplitPreviewSyncUntil = Date.now() + 900;
     scrollTextareaToLine(splitEditor, heading.lineIndex);
     scrollPanelToHeading(splitPreview, heading, 'split');
+    window.setTimeout(() => scrollTextareaToLine(splitEditor, heading.lineIndex), 450);
+    return;
+  }
+
+  if (isEditMode) {
+    scrollTextareaToLine(editor, heading.lineIndex);
+    editor.focus({ preventScroll: true });
     return;
   }
 
@@ -220,6 +358,7 @@ function scrollToHeading(heading) {
 
 function syncSplitEditorFromPreview() {
   if (!document.getElementById('splitPanel').classList.contains('active')) return;
+  if (Date.now() < suppressSplitPreviewSyncUntil) return;
 
   const previewMax = splitPreview.scrollHeight - splitPreview.clientHeight;
   const editorMax = splitEditor.scrollHeight - splitEditor.clientHeight;
@@ -257,10 +396,12 @@ function renderToc(headings) {
 
 function setMarkdown(md) {
   currentMarkdown = md;
+  savedMarkdown = md;
   editor.value = md;
   splitEditor.value = md;
   setPrdDirty(false);
   renderMarkdown(md);
+  renderChanges();
 }
 
 function syncFromEditor(value) {
@@ -270,6 +411,7 @@ function syncFromEditor(value) {
   setPrdDirty(true);
   statusEl.textContent = currentPrdFile ? `Unsaved changes in ${currentPrdFile}` : 'Unsaved changes';
   renderMarkdown(value);
+  renderChanges();
 }
 
 function setSchema(content) {
@@ -355,7 +497,7 @@ function updateDirtyIndicators() {
   prdDirtyBadge.textContent = isPrdDirty ? 'Modified' : 'Saved';
   prdDirtyBadge.classList.toggle('dirty', isPrdDirty);
   prdDirtyBadge.classList.toggle('clean', !isPrdDirty);
-  savePrdBtn.textContent = isPrdDirty ? 'Save PRD *' : 'Save PRD';
+  savePrdBtn.textContent = isPrdDirty ? 'Save MD *' : 'Save MD';
   savePrdBtn.classList.toggle('dirty-action', isPrdDirty);
 
   schemaDirtyBadge.textContent = isSchemaDirty ? 'Modified' : 'Saved';
@@ -395,7 +537,7 @@ function updateSchemaLinkStatus() {
   schemaLinkStatus.classList.toggle('linked', Boolean(linkedSchema));
 
   if (!currentPrdFile) {
-    schemaLinkStatus.textContent = 'No PRD selected';
+    schemaLinkStatus.textContent = 'No MD selected';
     return;
   }
   if (!linkedSchema) {
@@ -420,12 +562,13 @@ async function fetchJson(url, options) {
 
 async function loadDocuments(options = {}) {
   const data = await fetchJson('/api/documents');
+  const documents = data.documents || [];
   schemaLinks = data.links || {};
-  setSelectOptions(prdSelect, data.prds);
+  setSelectOptions(prdSelect, documents);
   setSelectOptions(schemaSelect, data.schemas);
 
-  if (data.prds.length > 0) {
-    const nextPrd = data.prds.find(file => file.path === options.prdFile)?.path || data.prds[0].path;
+  if (documents.length > 0) {
+    const nextPrd = documents.find(file => file.path === options.prdFile)?.path || documents[0].path;
     await loadPrd(nextPrd, { syncLinkedSchema: false });
   }
   if (data.schemas.length > 0) {
@@ -439,11 +582,11 @@ async function loadDocuments(options = {}) {
 }
 
 async function loadPrd(file = currentPrdFile, options = {}) {
-  statusEl.textContent = 'Loading PRD...';
-  const data = await fetchJson(fileUrl('/api/prd', file));
+  statusEl.textContent = 'Loading MD...';
+  const data = await fetchJson(fileUrl('/api/md', file));
   currentPrdFile = data.path;
   prdSelect.value = data.path;
-  currentPrdLabel.textContent = `prds/${data.path}`;
+  currentPrdLabel.textContent = `md/${data.path}`;
   setMarkdown(data.content);
   updateSchemaLinkStatus();
 
@@ -466,7 +609,7 @@ async function loadSchema(file = currentSchemaFile) {
 
 async function savePrd() {
   statusEl.textContent = 'Saving...';
-  const data = await fetchJson('/api/prd', {
+  const data = await fetchJson('/api/md', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -477,6 +620,33 @@ async function savePrd() {
   setPrdDirty(false);
   const backupText = data.backup ? `, backup: ${data.backup}` : '';
   statusEl.textContent = `Saved ${data.path} at ${new Date().toLocaleTimeString()}${backupText}`;
+}
+
+async function savePrdAs() {
+  const suggestedName = currentPrdFile
+    ? currentPrdFile.replace(/(\.[^/.]+)$/, '_copy$1')
+    : 'new_document.md';
+  const requestedName = prompt('Save MD as', suggestedName);
+  if (requestedName === null) return;
+
+  const file = normalizeManagedFileName(requestedName, '.md');
+  if (!file) return;
+
+  statusEl.textContent = 'Saving MD as new file...';
+  const data = await fetchJson('/api/md/file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      file,
+      content: currentMarkdown
+    })
+  });
+
+  await loadDocuments({ prdFile: data.path, schemaFile: currentSchemaFile });
+  savedMarkdown = currentMarkdown;
+  setPrdDirty(false);
+  renderChanges();
+  statusEl.textContent = `Saved as ${data.path}`;
 }
 
 async function saveSchema() {
@@ -505,7 +675,7 @@ async function saveCurrentDocument() {
   }
 
   if (!isPrdDirty) {
-    statusEl.textContent = 'PRD already saved';
+      statusEl.textContent = 'MD already saved';
     return;
   }
   await savePrd();
@@ -513,11 +683,11 @@ async function saveCurrentDocument() {
 
 async function setCurrentSchemaLink(schemaFile) {
   if (!currentPrdFile) {
-    statusEl.textContent = 'No PRD selected';
+    statusEl.textContent = 'No MD selected';
     return;
   }
 
-  const data = await fetchJson('/api/prd/link', {
+  const data = await fetchJson('/api/md/link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -555,10 +725,10 @@ function managedFileConfig(kind) {
   }
 
   return {
-    endpoint: '/api/prd/file',
+    endpoint: '/api/md/file',
     currentFile: currentPrdFile,
     defaultExtension: '.md',
-    label: 'PRD',
+    label: 'MD',
     canLeave: canLeaveCurrentPrd,
     selectAfter: (path) => loadDocuments({ prdFile: path, schemaFile: currentSchemaFile }),
   };
@@ -625,7 +795,7 @@ async function deleteManagedFile(kind) {
 }
 
 function canLeaveCurrentPrd() {
-  return !isPrdDirty || confirm('저장하지 않은 PRD 변경사항이 있습니다. 다른 PRD로 이동할까요?');
+  return !isPrdDirty || confirm('저장하지 않은 MD 변경사항이 있습니다. 다른 문서로 이동할까요?');
 }
 
 function canLeaveCurrentSchema() {
@@ -635,6 +805,8 @@ function canLeaveCurrentSchema() {
 function activateTab(tabName, options = {}) {
   const shouldPreserveScroll = options.preserveScroll !== false;
   const scrollContext = shouldPreserveScroll ? currentScrollContext() : null;
+
+  if (tabName === 'changes') renderChanges();
 
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -653,6 +825,13 @@ schemaEditor.addEventListener('input', e => syncFromSchemaEditor(e.target.value)
 savePrdBtn.addEventListener('click', () => {
   savePrd().catch(error => {
     statusEl.textContent = 'Save failed';
+    console.error(error);
+  });
+});
+
+saveAsPrdBtn.addEventListener('click', () => {
+  savePrdAs().catch(error => {
+    statusEl.textContent = 'Save as failed';
     console.error(error);
   });
 });
@@ -708,21 +887,21 @@ saveSchemaBtn.addEventListener('click', () => {
 
 document.getElementById('newPrdBtn').addEventListener('click', () => {
   createManagedFile('prd').catch(error => {
-    statusEl.textContent = 'Create PRD failed';
+    statusEl.textContent = 'Create MD failed';
     console.error(error);
   });
 });
 
 document.getElementById('renamePrdBtn').addEventListener('click', () => {
   renameManagedFile('prd').catch(error => {
-    statusEl.textContent = 'Rename PRD failed';
+    statusEl.textContent = 'Rename MD failed';
     console.error(error);
   });
 });
 
 document.getElementById('deletePrdBtn').addEventListener('click', () => {
   deleteManagedFile('prd').catch(error => {
-    statusEl.textContent = 'Delete PRD failed';
+    statusEl.textContent = 'Delete MD failed';
     console.error(error);
   });
 });
@@ -776,7 +955,7 @@ document.addEventListener('keydown', (event) => {
 document.getElementById('themeBtn').addEventListener('click', () => {
   document.body.classList.toggle('dark');
   const isDark = document.body.classList.contains('dark');
-  localStorage.setItem('prd-theme', isDark ? 'dark' : 'light');
+  localStorage.setItem('md-theme', isDark ? 'dark' : 'light');
   document.getElementById('themeBtn').textContent = isDark ? 'Light' : 'Dark';
 });
 
@@ -792,10 +971,12 @@ window.addEventListener('beforeunload', (event) => {
   event.returnValue = '';
 });
 
-if (localStorage.getItem('prd-theme') === 'dark') {
+if (localStorage.getItem('md-theme') === 'dark' || localStorage.getItem('prd-theme') === 'dark') {
   document.body.classList.add('dark');
   document.getElementById('themeBtn').textContent = 'Light';
 }
+
+addSidebarDocumentIcons();
 
 loadDocuments().catch(error => {
   statusEl.textContent = 'Initial load failed';

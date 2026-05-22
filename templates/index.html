@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PRD Manager</title>
-  <link rel="stylesheet" href="/static/style.css?v=15" />
+  <title>MD Manager</title>
+  <link rel="stylesheet" href="/static/style.css?v=24" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.3/dist/purify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
@@ -13,19 +13,19 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo">P</div>
+        <div class="logo">M</div>
         <div>
-          <div class="brand-title">PRD Manager</div>
-          <div class="brand-subtitle">PRD와 스키마 관리</div>
+          <div class="brand-title">MD Manager</div>
+          <div class="brand-subtitle">Markdown 문서 관리</div>
         </div>
       </div>
 
       <div class="side-section">
         <div class="side-label-row">
-          <div class="side-label">PRD 문서</div>
+          <div class="side-label">Markdown 문서</div>
           <span id="prdDirtyBadge" class="dirty-badge clean">Saved</span>
         </div>
-        <select id="prdSelect" class="file-select" aria-label="PRD 문서 선택"></select>
+        <select id="prdSelect" class="file-select" aria-label="Markdown 문서 선택"></select>
         <div class="file-tools">
           <button id="newPrdBtn" class="btn compact ghost">New</button>
           <button id="renamePrdBtn" class="btn compact ghost">Rename</button>
@@ -38,7 +38,7 @@
           <div class="side-label">Schema 문서</div>
           <span id="schemaDirtyBadge" class="dirty-badge clean">Saved</span>
         </div>
-        <select id="schemaSelect" class="file-select" aria-label="스키마 파일 선택"></select>
+        <select id="schemaSelect" class="file-select" aria-label="Schema 문서 선택"></select>
         <div class="file-tools">
           <button id="newSchemaBtn" class="btn compact ghost">New</button>
           <button id="renameSchemaBtn" class="btn compact ghost">Rename</button>
@@ -46,7 +46,7 @@
         </div>
         <br>
         <div class="link-tools">
-          <button id="linkSchemaBtn" class="btn compact primary">Link to PRD</button>
+          <button id="linkSchemaBtn" class="btn compact primary">Link to MD</button>
           <button id="clearSchemaLinkBtn" class="btn compact ghost">Clear Link</button>
         </div>
         <div id="schemaLinkStatus" class="link-status">No schema linked</div>
@@ -61,20 +61,46 @@
     <main class="main">
       <header class="topbar">
         <div>
-          <h1>PRD Workspace</h1>
-          <p id="currentPrdLabel">prds 폴더의 문서를 자동으로 읽는 중입니다.</p>
+          <h1>MD Workspace</h1>
+          <p id="currentPrdLabel">md 폴더의 문서를 자동으로 읽는 중입니다.</p>
         </div>
         <div class="actions">
           <button id="themeBtn" class="btn ghost">Dark</button>
-          <button id="reloadBtn" class="btn ghost">Reload</button>
-          <button id="saveBtn" class="btn primary">Save PRD</button>
+          <button id="reloadBtn" class="btn ghost" title="현재 선택한 Markdown 파일을 디스크에서 다시 불러옵니다. 저장하지 않은 변경 내용은 사라질 수 있습니다.">Reload</button>
+          <button id="saveBtn" class="btn primary">Save MD</button>
+          <button id="saveAsBtn" class="btn ghost">Save As</button>
         </div>
       </header>
+
+      <details class="markdown-guide">
+        <summary>Markdown 문법 설명서</summary>
+        <div class="guide-grid">
+          <div><code># 제목 1</code><span>큰 제목</span></div>
+          <div><code>## 제목 2</code><span>중간 제목</span></div>
+          <div><code>### 제목 3</code><span>작은 제목</span></div>
+          <div><code>- 항목</code><span>목록</span></div>
+          <div><code>1. 항목</code><span>순서 있는 목록</span></div>
+          <div><code>**굵게**</code><span>굵은 글씨</span></div>
+          <div><code>*기울임*</code><span>기울임</span></div>
+          <div><code>~~취소선~~</code><span>취소선</span></div>
+          <div><code>&gt; 인용문</code><span>인용문</span></div>
+          <div><code>---</code><span>구분선</span></div>
+          <div><code>[링크](주소)</code><span>링크</span></div>
+          <div><code>![설명](이미지주소)</code><span>이미지</span></div>
+          <div><code>`코드`</code><span>인라인 코드</span></div>
+          <div><code>```코드 블록```</code><span>여러 줄 코드</span></div>
+          <div><code>| A | B |</code><span>표</span></div>
+          <div><code>- [ ] 할 일</code><span>체크리스트</span></div>
+          <div><code>&lt;br&gt;</code><span>줄바꿈</span></div>
+          <div><code>```mermaid</code><span>다이어그램</span></div>
+        </div>
+      </details>
 
       <section class="tabs">
         <button class="tab active" data-tab="preview">Preview</button>
         <button class="tab" data-tab="edit">Edit</button>
         <button class="tab" data-tab="split">Split</button>
+        <button class="tab" data-tab="changes">Changes</button>
         <button class="tab" data-tab="schema">Schema</button>
       </section>
 
@@ -96,6 +122,14 @@
         <textarea id="splitEditor" spellcheck="false"></textarea>
       </section>
 
+      <section id="changesPanel" class="panel">
+        <div class="changes-header">
+          <h2>Changes</h2>
+          <p id="changesSummary">No changes</p>
+        </div>
+        <div id="changesBody" class="changes-body"></div>
+      </section>
+
       <section id="schemaPanel" class="panel">
         <div class="schema-header">
           <div>
@@ -113,6 +147,6 @@
     </main>
   </div>
 
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

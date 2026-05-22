@@ -9,14 +9,14 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
-PRD_DIR = BASE_DIR / "prds"
+PRD_DIR = BASE_DIR / "md"
 SCHEMA_DIR = BASE_DIR / "schemas"
-LINKS_PATH = BASE_DIR / "prd_schema_links.json"
+LINKS_PATH = BASE_DIR / "md_schema_links.json"
 BACKUP_DIR = BASE_DIR / "backups"
 PRD_EXTENSIONS = {".md", ".markdown"}
 SCHEMA_EXTENSIONS = {".sql", ".ddl", ".prisma", ".json", ".yaml", ".yml", ".md"}
 
-app = FastAPI(title="PRD Manager")
+app = FastAPI(title="MD Manager")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
@@ -71,8 +71,8 @@ def ensure_files() -> None:
     SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
 
     if not list_files(PRD_DIR, PRD_EXTENSIONS):
-        (PRD_DIR / "prd.md").write_text(
-            "# New PRD\n\n## Overview\n\nWrite your PRD here.\n",
+        (PRD_DIR / "document.md").write_text(
+            "# New Markdown Document\n\nStart writing here.\n",
             encoding="utf-8",
         )
     if not list_files(SCHEMA_DIR, SCHEMA_EXTENSIONS):
@@ -267,25 +267,26 @@ def index(request: Request):
 @app.get("/api/documents")
 def get_documents():
     ensure_files()
+    md_files = list_files(PRD_DIR, PRD_EXTENSIONS)
     return {
-        "prds": list_files(PRD_DIR, PRD_EXTENSIONS),
+        "documents": md_files,
         "schemas": list_files(SCHEMA_DIR, SCHEMA_EXTENSIONS),
         "links": valid_schema_links(),
     }
 
 
-@app.get("/api/prd")
+@app.get("/api/md")
 def get_prd(file: str | None = Query(default=None)):
     ensure_files()
     selected_file = resolve_managed_file(PRD_DIR, PRD_EXTENSIONS, file)
     return file_payload(PRD_DIR, selected_file)
 
 
-@app.post("/api/prd")
+@app.post("/api/md")
 def save_prd(payload: SavePrdRequest):
     ensure_files()
     selected_file = resolve_managed_file(PRD_DIR, PRD_EXTENSIONS, payload.file)
-    backup_path = write_with_backup(PRD_DIR, selected_file, payload.content, "prds")
+    backup_path = write_with_backup(PRD_DIR, selected_file, payload.content, "md")
     return JSONResponse({
         "ok": True,
         "message": f"{selected_file.name} saved",
@@ -294,17 +295,17 @@ def save_prd(payload: SavePrdRequest):
     })
 
 
-@app.post("/api/prd/file")
+@app.post("/api/md/file")
 def create_prd_file(payload: CreateFileRequest):
     return create_managed_file(
         PRD_DIR,
         PRD_EXTENSIONS,
         payload,
-        "# New PRD\n\n## Overview\n\nWrite your PRD here.\n",
+        "# New Markdown Document\n\nStart writing here.\n",
     )
 
 
-@app.patch("/api/prd/file")
+@app.patch("/api/md/file")
 def rename_prd_file(payload: RenameFileRequest):
     selected_file = resolve_managed_file(PRD_DIR, PRD_EXTENSIONS, payload.file)
     target_file = resolve_new_managed_file(PRD_DIR, PRD_EXTENSIONS, payload.new_file)
@@ -315,7 +316,7 @@ def rename_prd_file(payload: RenameFileRequest):
     return response
 
 
-@app.delete("/api/prd/file")
+@app.delete("/api/md/file")
 def delete_prd_file(payload: DeleteFileRequest):
     selected_file = resolve_managed_file(PRD_DIR, PRD_EXTENSIONS, payload.file)
     old_path = selected_file.relative_to(PRD_DIR).as_posix()
@@ -324,7 +325,7 @@ def delete_prd_file(payload: DeleteFileRequest):
     return response
 
 
-@app.post("/api/prd/link")
+@app.post("/api/md/link")
 def link_schema_to_prd(payload: LinkSchemaRequest):
     ensure_files()
     prd_file = resolve_managed_file(PRD_DIR, PRD_EXTENSIONS, payload.prd_file)
@@ -398,7 +399,11 @@ def health():
     return {"ok": True}
 
 
-if __name__ == "__main__":
+def run_server() -> None:
     import uvicorn
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8787)
+    uvicorn.run(app, host="127.0.0.1", port=8787, log_level="info")
+
+
+if __name__ == "__main__":
+    run_server()
